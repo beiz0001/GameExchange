@@ -1,5 +1,5 @@
 #include <stdio.h>      /* for printf() and fprintf() */
-#include <sys/socket.h> /* for socket(), connect(), sendto(), and recvfrom() */
+include <sys/socket.h> /* for socket(), connect(), sendto(), and recvfrom() */
 #include <arpa/inet.h>  /* for sockaddr_in and inet_addr() */
 #include <stdlib.h>     /* for atoi() and exit() */
 #include <string.h>     /* for memset() */
@@ -46,6 +46,7 @@ struct routing_table{
 int main(int argc, char *argv[])
 {
     int sock;                        /* Socket descriptor */
+    struct sockaddr_in servAddr;    /* server address */
     struct sockaddr_in neighborAddr; /* neighbor address */
     struct sockaddr_in fromAddr;     /* Source address*/
     unsigned short neighborPort;     /* Echo server port */
@@ -129,43 +130,36 @@ int main(int argc, char *argv[])
             neighborAddr.sin_port = htons(neighborPort);       /* neighbor port */
 
             /* Send the distance vector to the neighbor */
-            if (sendto(sock, dv, sizeof(dv), 0, (struct sockaddr *)
+            if (sendto(sock, (struct dv*)&dv, sizeof(dv), 0, (struct sockaddr *)
                    &neighborAddr, sizeof(neighborAddr)) != sizeof(dv))
                 DieWithError("sendto() failed");
         }
     }
 
-    while(1){
-         /* Get a response */
+    /* Construct local address structure */
+    memset(&servAddr, 0, sizeof(servAddr));   /* Zero out structure */
+    echoServAddr.sin_family = AF_INET;                /* Internet address family */
+    echoServAddr.sin_addr.s_addr = htonl(INADDR_ANY); /* Any incoming interface */
+    echoServAddr.sin_port = htons(neighborPort);      /* Local port */
+
+    /* Bind to the local address */
+    if (bind(sock, (struct sockaddr *) &servAddr, sizeof(servAddr)) < 0)
+        DieWithError("bind() failed");
+  
+    for (;;) /* Run forever */
+    {
+        /* Set the size of the in-out parameter */
         fromSize = sizeof(fromAddr);
-        alarm(TIMEOUT_SECS);        /* Set the timeout */
-        while ((respDvLen = recvfrom(sock, buffer, sizeof(buffer), 0,
-               (struct sockaddr *) &fromAddr, &fromSize)) < 0) {
-            if (errno == EINTR)     /* Alarm went off  */
-            {
-                if (tries < MAXTRIES)      /* incremented by signal handler */
-                {
-                    printf("timed out, %d more tries...\n", MAXTRIES-tries);
-                    if (sendto(sock, dv, sizeof(dv), 0, (struct sockaddr *)
-                            &neighborAddr, sizeof(neighborAddr)) != sizeof(dv))
-                        DieWithError("sendto() failed");
-                    alarm(TIMEOUT_SECS);
-                } 
-                else
-                    DieWithError("No Response");
-            } 
-            else
-                DieWithError("recvfrom() failed");
-        }
-            
-        /* recvfrom() got something --  cancel the timeout */
-        alarm(0);
-        // succesfully receive distance vector, then update routing table
+
+        /* Block until receive message from a client */
+        if ((recvMsgSize = recvfrom(sock, (struct dv*)&dv, sizeof(dv), 0,
+            (struct sockaddr *) &fromAddr, &fromSize)) < 0)
+            DieWithError("recvfrom() failed");
+
+       /* succesfully receive distance vector, then update routing table */
 
     }
-
-
-    
+        
 
     //close(sock);
     //exit(0);
