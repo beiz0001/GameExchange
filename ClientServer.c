@@ -9,6 +9,7 @@
 
 #define TIMEOUT_SECS    2       /* Seconds between retransmits */
 #define MAXTRIES        5       /* Tries before giving up */
+#define INFINITY        9999     // the distance of node if there is no path
 
 int tries=0;   /* Count of times sent - GLOBAL for signal-handler access */
 
@@ -26,7 +27,7 @@ struct element_{
 struct distance_vector_{
     char sender;
     int num_of_dests;
-    struct element_ content[5];
+    struct element_ content[6];
 };
 
 struct neighbors{
@@ -39,7 +40,22 @@ struct routing_table{
     char dest;
     int cost;
     char nextHop;
-} routingTable[5];
+} routingTable[6];
+
+
+void initializeRouterTable(char ch){
+    for (int i = 0; i < 6; i++) {
+        if (ch == (char)(i + 'A')){
+                routingTable[i].dest = ch;
+                routingTable[i].cost = 0;
+                routingTable[i].nextHop = ch;
+        } else {
+                routingTable[i].dest = (char)(i+'A');
+                routingTable[i].cost = INFINITY;
+                routingTable[i].nextHop = 'X';
+        }
+    }
+}
 
 
 int main(int argc, char *argv[])
@@ -89,37 +105,44 @@ int main(int argc, char *argv[])
     }
     num_of_neighbors = count - 1;
 
-    for (int i = 0; i < 5; i++) {
-        routingTable[i].dest = neighborTable[i].neighbor;
-        routingTable[i].cost = neighborTable[i].cost_to_neighbor ;
-        routingTable[i].nextHop =  routingTable[i].dest;
+    // get host name
+    char hostname[128];
+    hostname[127] = '\0';
+    gethostname(hostname, 127);
+    char host = (char)(hostname[0] - 32);
+    initializeRouterTable(host);
+    //printf("Hostname: %s\n", hostname);
+
+    // update the routing table according the data from file
+    for (int i = 0, j = 0; i < 6 && j < num_of_neighbors; i++) {
+        if (neighborTable[j].neighbor == (char)(i+'A')){
+                if(neighborTable[j].cost_to_neighbor < routingTable[i].cost){
+                        routingTable[i].cost = neighborTable[j].cost_to_neighbor ;
+                        routingTable[i].nextHop =  neighborTable[j].neighbor;
+                        j++;
+                }
+        }
     }
 
     int num_of_dests = 0;
     printf("The initial routing table is:\n");
     printf("Dest   Cost    NextHop\n");
- for (int i = 0; i < 5; i++) {
-        if (routingTable[i].cost == 0) break;
+ 
+    for (int i = 0; i < 6; i++) {
+        if (routingTable[i].cost == INFINITY) continue;
         printf("%c       %d       %c\n",routingTable[i].dest,routingTable[i].cost,routingTable[i].nextHop);
         num_of_dests++;
     }
 
-
-    // get host name
-    char hostname[128];
-    hostname[127] = '\0';
-    gethostname(hostname, 127);
-    //printf("Hostname: %s\n", hostname);
-
-    struct distance_vector_  dv;
-    for (int i = 0; i < 5; i++) {
-        if (routingTable[i].cost == 0) break;
+	struct distance_vector_  dv;
+    for (int i = 0; i < 6; i++) {
         dv.content[i].dest = routingTable[i].dest;
         dv.content[i].dist = routingTable[i].cost;
     }
     dv.num_of_dests = num_of_dests;
     dv.sender = (char)(hostname[0] - 32);
-    //printf("%c\n",dv.sender);
+
+
 
     /* Create a best-effort datagram socket using UDP */
     if ((sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
@@ -175,12 +198,50 @@ int main(int argc, char *argv[])
         fromSize = sizeof(fromAddr);
 
         /* Block until receive message from a client */
-        if ((respDvLen = recvfrom(sock, temp, sizeof(*temp), 0,
+        if ((respDvLen = recvfrom(sock_serv, temp, sizeof(*temp), 0,
             (struct sockaddr *) &fromAddr, &fromSize)) < 0)
             DieWithError("recvfrom() failed");
 
        /* succesfully receive distance vector, then update routing table */
-        printf("hello, i am here\n");
+        printf("the sender is %c\n",temp->sender);
+        printf("the number of dests is %d",temp->num_of_dests);
+        for(int i = 0; i < 6; i++){
+                if(temp->content[i].dist == INFINITY) continue;
+                printf("dest is %c  dist is %d\n", temp->content[i].dest, temp->content[i].dist);
+        }
+
+        int index = temp->sender - 65;
+	int len = routingTable[index].cost;
+        int changed = -1;
+        for (int i = 0; i < 6; i++) {
+                if (temp->content[i].dist + len < routingTable[i].cost){
+                        //update routing table
+                        routingTable[i].cost = temp->content[i].dist + len;
+                        routingTable[i].dest = temp->sender;
+                        changed = 1;
+                        // update the distance vector
+                        dv.content[i].dist = routingTable[i].cost;
+                        dv.num_of_dests++;
+                }
+        }
+	if (changed) {
+                for (int i = 0; i < num_of_neighbors; i++) {
+                    struct sockaddr_in neighborAddr; /* neighbor address */
+
+                    /* Construct the neighbor address structure */
+                    memset(&neighborAddr, 0, sizeof(neighborAddr));    /* Zero out structure */
+                    neighborAddr.sin_family = AF_INET;
+                    neighborAddr.sin_addr.s_addr = inet_addr(neighborTable[i].neighborIP);  /* neighbor IP address */
+                    neighborAddr.sin_port = htons(neighborPort);       /* neighbor port */
+
+                 /* Send the distance vector to the neighbor */
+                if (sendto(sock, (struct distance_vector_*)&dv, sizeof(dv), 0, (struct sockaddr *)
+                   &neighborAddr, sizeof(neighborAddr)) != sizeof(dv))
+                        DieWithError("sendto() failed");
+                 printf(" sending finished\n");
+        }
+
+
     }
 
 
