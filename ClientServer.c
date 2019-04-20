@@ -67,13 +67,10 @@ int main(int argc, char *argv[])
     unsigned short neighborPort;     /* Echo server port */
     unsigned int fromSize;           /* In-out of address size for recvfrom() */
     struct sigaction myAction;       /* For setting signal handler */
-    //char *neighborIP;                    /* IP address of neighbor */
-    //char *echoString;                /* String to send to echo server */
-    //char echoBuffer[ECHOMAX+1];      /* Buffer for echo string */
     int sendDvLen;               /* Length of string to echo */
     int respDvLen;               /* Size of received datagram */
     int num_of_neighbors;
-    char buffer[256];
+   
 
     FILE *fp;
     char* filePath = argv[1];
@@ -127,14 +124,15 @@ int main(int argc, char *argv[])
     int num_of_dests = 0;
     printf("The initial routing table is:\n");
     printf("Dest   Cost    NextHop\n");
- 
     for (int i = 0; i < 6; i++) {
         if (routingTable[i].cost == INFINITY) continue;
         printf("%c       %d       %c\n",routingTable[i].dest,routingTable[i].cost,routingTable[i].nextHop);
         num_of_dests++;
     }
+    printf("-------------------------------------\n");
 
-	struct distance_vector_  dv;
+
+    struct distance_vector_  dv;
     for (int i = 0; i < 6; i++) {
         dv.content[i].dest = routingTable[i].dest;
         dv.content[i].dist = routingTable[i].cost;
@@ -202,29 +200,41 @@ int main(int argc, char *argv[])
             (struct sockaddr *) &fromAddr, &fromSize)) < 0)
             DieWithError("recvfrom() failed");
 
-       /* succesfully receive distance vector, then update routing table */
-        printf("the sender is %c\n",temp->sender);
-        printf("the number of dests is %d",temp->num_of_dests);
+         /* succesfully receive distance vector, then update routing table */
+        printf("Distance vector is successfully received from node %c\n",temp->sender);
+        printf("%d\n",temp->num_of_dests);
         for(int i = 0; i < 6; i++){
                 if(temp->content[i].dist == INFINITY) continue;
-                printf("dest is %c  dist is %d\n", temp->content[i].dest, temp->content[i].dist);
+                printf("dest: %c  distance: %d\n", temp->content[i].dest, temp->content[i].dist);
         }
+        printf("-------------------------------------\n");
+
 
         int index = temp->sender - 65;
 	int len = routingTable[index].cost;
-        int changed = -1;
+        int changed = 0;
         for (int i = 0; i < 6; i++) {
                 if (temp->content[i].dist + len < routingTable[i].cost){
                         //update routing table
+                        if (routingTable[i].cost == INFINITY)
+                                dv.num_of_dests++;
                         routingTable[i].cost = temp->content[i].dist + len;
-                        routingTable[i].dest = temp->sender;
+                        routingTable[i].nextHop = temp->sender;
                         changed = 1;
                         // update the distance vector
                         dv.content[i].dist = routingTable[i].cost;
-                        dv.num_of_dests++;
                 }
         }
 	if (changed) {
+		//print the updated routinting table
+                printf("The updated routing table is:\n");
+                printf("Dest   Cost    NextHop\n");
+                for (int i = 0; i < 6; i++) {
+                     if (routingTable[i].cost == INFINITY) continue;
+                           printf("%c       %d       %c\n",routingTable[i].dest,routingTable[i].cost,routingTable[i].nextHop);
+                }
+                printf("-------------------------------------\n");
+
                 for (int i = 0; i < num_of_neighbors; i++) {
                     struct sockaddr_in neighborAddr; /* neighbor address */
 
@@ -239,9 +249,8 @@ int main(int argc, char *argv[])
                    &neighborAddr, sizeof(neighborAddr)) != sizeof(dv))
                         DieWithError("sendto() failed");
                  printf(" sending finished\n");
-        }
-
-
+        	}
+	}
     }
 
 
