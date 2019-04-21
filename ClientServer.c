@@ -42,7 +42,7 @@ struct routing_table{
     char nextHop;
 } routingTable[6];
 
-
+// initialize the Routing table
 void initializeRouterTable(char ch){
     for (int i = 0; i < 6; i++) {
         if (ch == (char)(i + 'A')){
@@ -56,13 +56,30 @@ void initializeRouterTable(char ch){
         }
     }
 }
+// send distance vector information to all its neighbors
+    void send_to_all(int num_of_neighbors,struct distance_vector_ dv,int neighborPort,int sock){
+            for (int i = 0; i < num_of_neighbors; i++) {
+            struct sockaddr_in neighborAddr; /* neighbor address */
+
+            /* Construct the neighbor address structure */
+            memset(&neighborAddr, 0, sizeof(neighborAddr));    /* Zero out structure */
+            neighborAddr.sin_family = AF_INET;
+            neighborAddr.sin_addr.s_addr = inet_addr(neighborTable[i].neighborIP);  /* neighbor IP address */
+            neighborAddr.sin_port = htons(neighborPort);       /* neighbor port */
+
+            /* Send the distance vector to the neighbor */
+            if (sendto(sock, (struct distance_vector_*)&dv, sizeof(dv), 0, (struct sockaddr *)
+                   &neighborAddr, sizeof(neighborAddr)) != sizeof(dv))
+                DieWithError("sendto() failed");
+        }
+    }
+
 
 
 int main(int argc, char *argv[])
 {
     int sock;                        /* Socket descriptor */
     struct sockaddr_in servAddr;    /* server address */
-    struct sockaddr_in neighborAddr; /* neighbor address */
     struct sockaddr_in fromAddr;     /* Source address*/
     unsigned short neighborPort;     /* Echo server port */
     unsigned int fromSize;           /* In-out of address size for recvfrom() */
@@ -80,8 +97,7 @@ int main(int argc, char *argv[])
 
     fp = fopen(filePath, "r");
     if(fp == NULL) {
-
- perror("Can't open the file.\n");
+ 	  perror("Can't open the file.\n");
           return(-1);
        }
     while (fgets(str, 100, fp)) {
@@ -93,7 +109,7 @@ int main(int argc, char *argv[])
             neighborTable[count-1].cost_to_neighbor = atoi(strtok(NULL, delim));
             //create temp pointer to hold data
             char *temp = strtok(NULL, delim);
-            // alocate mem in array
+            // alocate memory in array
             neighborTable[count-1].neighborIP = malloc(strlen(temp));
             //copy to array
             strncpy(neighborTable[count-1].neighborIP, temp, strlen(temp)+1);
@@ -108,7 +124,6 @@ int main(int argc, char *argv[])
     gethostname(hostname, 127);
     char host = (char)(hostname[0] - 32);
     initializeRouterTable(host);
-    //printf("Hostname: %s\n", hostname);
 
     // update the routing table according the data from file
     for (int i = 0, j = 0; i < 6 && j < num_of_neighbors; i++) {
@@ -145,34 +160,8 @@ int main(int argc, char *argv[])
     /* Create a best-effort datagram socket using UDP */
     if ((sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
         DieWithError("socket() failed");
-
-    /* Set signal handler for alarm signal */
-    myAction.sa_handler = CatchAlarm;
-    if (sigfillset(&myAction.sa_mask) < 0) /* block everything in handler */
-        DieWithError("sigfillset() failed");
-    myAction.sa_flags = 0;
-
-    if (sigaction(SIGALRM, &myAction, 0) < 0)
-        DieWithError("sigaction() failed for SIGALRM");
-// send distance vector information to all its neighbors
-//    send_to_all(){
-        for (int i = 0; i < num_of_neighbors; i++) {
-           // printf("hello, %c\n",neighborTable[i].neighbor);
-            printf("hello, %s\n",neighborTable[i].neighborIP);
-
-            /* Construct the server address structure */
-            memset(&neighborAddr, 0, sizeof(neighborAddr));    /* Zero out structure */
-            neighborAddr.sin_family = AF_INET;
-            neighborAddr.sin_addr.s_addr = inet_addr(neighborTable[i].neighborIP);  /* neighbor IP address */
-            neighborAddr.sin_port = htons(neighborPort);       /* neighbor port */
-
-            /* Send the distance vector to the neighbor */
-            if (sendto(sock, (struct distance_vector_*)&dv, sizeof(dv), 0, (struct sockaddr *)
-                   &neighborAddr, sizeof(neighborAddr)) != sizeof(dv))
-                DieWithError("sendto() failed");
-        }
-  //  }
-
+    
+   send_to_all(num_of_neighbors,  dv, neighborPort, sock);
 
     struct distance_vector_ * temp = malloc(sizeof(struct distance_vector_));
     /* Construct local address structure */
@@ -235,25 +224,14 @@ int main(int argc, char *argv[])
                 }
                 printf("-------------------------------------\n");
 
-                for (int i = 0; i < num_of_neighbors; i++) {
-                    struct sockaddr_in neighborAddr; /* neighbor address */
-
-                    /* Construct the neighbor address structure */
-                    memset(&neighborAddr, 0, sizeof(neighborAddr));    /* Zero out structure */
-                    neighborAddr.sin_family = AF_INET;
-                    neighborAddr.sin_addr.s_addr = inet_addr(neighborTable[i].neighborIP);  /* neighbor IP address */
-                    neighborAddr.sin_port = htons(neighborPort);       /* neighbor port */
-
-                 /* Send the distance vector to the neighbor */
-                if (sendto(sock, (struct distance_vector_*)&dv, sizeof(dv), 0, (struct sockaddr *)
-                   &neighborAddr, sizeof(neighborAddr)) != sizeof(dv))
-                        DieWithError("sendto() failed");
-                 printf(" sending finished\n");
-        	}
+                send_to_all(num_of_neighbors,  dv, neighborPort, sock);
 	}
+        
+       // periodically sends out the distance vector
+       sleep(5);
+       printf("keep seding distance vector\n");
+       send_to_all(num_of_neighbors,  dv, neighborPort, sock);
     }
-
-
     //close(sock);
     //exit(0);
 }
